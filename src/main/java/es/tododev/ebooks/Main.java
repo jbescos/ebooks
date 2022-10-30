@@ -4,17 +4,16 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
-
-import javax.xml.parsers.ParserConfigurationException;
-
-import org.xml.sax.SAXException;
 
 public class Main {
 	
-	static final String BOOK_NAME_KEY = "book.name";
+	private static final String BASE_URL_KEY = "base.url";
+	private static final String ISBNS_KEY = "isbns";
 
-	public static void main(String[] args) throws IOException, InterruptedException, ParserConfigurationException, SAXException {
+	public static void main(String[] args) throws IOException, InterruptedException {
 		if (args.length != 1) {
 			System.out.println("Specify the properties file as argument");
 		} else {
@@ -26,9 +25,19 @@ public class Main {
 			try (InputStream input = new FileInputStream(args[0])) {
 				properties.load(input);
 			}
-			properties.put(BOOK_NAME_KEY, prop.getName().split("\\.")[0]);
-			OreillyProcessor processor = new OreillyProcessor(properties);
-			processor.execute();
+			Map<String, String> headers = new HashMap<>();
+			for (Object keyObj : properties.keySet()) {
+				String key = (String) keyObj;
+				if (key.startsWith("header.")) {
+					headers.put(key.replaceFirst("header.", ""), properties.getProperty(key).toString());
+				}
+			}
+			String baseUrl = properties.getProperty(BASE_URL_KEY).toString();
+			for (String isbn : properties.getProperty(ISBNS_KEY).toString().split(",")) {
+				System.out.println("Processing ISBN: " + isbn);
+				OreillyProcessor processor = new OreillyProcessor(baseUrl, isbn, headers);
+				processor.execute();
+			}
 		}
 	}
 

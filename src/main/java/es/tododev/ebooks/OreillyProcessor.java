@@ -3,75 +3,93 @@ package es.tododev.ebooks;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpRequest.Builder;
-import java.net.http.HttpResponse;
-import java.net.http.HttpResponse.BodyHandlers;
+import java.io.InputStream;
 import java.nio.charset.Charset;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Properties;
+import java.util.Map;
+import java.util.Map.Entry;
 
-import javax.xml.parsers.ParserConfigurationException;
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Invocation.Builder;
+import javax.ws.rs.core.GenericType;
+import javax.ws.rs.core.Response;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.xml.sax.SAXException;
 
 public class OreillyProcessor {
 
+	private static final List<String> VALID_MEDIA_TYPES = Arrays.asList("text/plain", "text/html", "text/xml", "text/xhtml", "application/xhtml+xml", "application/xhtml", "application/xml", "application/html");
 	private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
-	private static final String BASE_URL_KEY = "base.url";
-	private static final String INTRO_VIEW_PAGE_KEY = "intro.view.page";
-	private static final String FETCH_URL_KEY = "fetch.url";
-	private final Properties properties;
-	private final HttpClient httpClient;
-	private final String bookFolder;
+	private static final String BOOKS_FOLDER = "books/";
+	private final Client httpClient;
+	private final String isbn;
+	private final String baseUrl;
+	private final Map<String, String> httpHeaders;
+	private String bookName;
 
-	public OreillyProcessor(Properties properties) {
-		this.bookFolder = properties.getProperty(Main.BOOK_NAME_KEY);
-		this.properties = properties;
-		this.httpClient = HttpClient.newBuilder().build();
+	public OreillyProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
+		this.baseUrl = baseUrl;
+		this.isbn = isbn;
+		this.httpHeaders = httpHeaders;
+		this.httpClient = ClientBuilder.newBuilder().build();
 	}
 	
-	public void execute() throws ParserConfigurationException, SAXException, IOException, InterruptedException {
-		downloadPages();
-		downloadSources("img", "src");
-		downloadStyles();
+	public void execute() throws IOException, InterruptedException {
+		String infoPath = baseUrl + "/api/v2/epubs/urn:orm:book:" + isbn;
+		Builder builder = httpClient.target(infoPath).request();
+		addHeaders(builder);
+		Map<String, Object> response = builder.get(new GenericType<Map<String, Object>>() {});
+		String title = response.get("title").toString().toLowerCase().replaceAll(" ", "-");
+		bookName = safeFileName(title);
+		File bookDir = new File(BOOKS_FOLDER + bookName);
+		if (!bookDir.exists()) {
+			String filesUrl = response.get("files").toString();
+			do {
+				System.out.println("Searching book pages in " + filesUrl);
+				filesUrl = downloadPages(filesUrl);
+			} while (filesUrl != null);
+			downloadSources("img", "src");
+			String viewPage = baseUrl + "/library/view/" + title + "/" + isbn;
+			downloadStyles(viewPage);
+		} else {
+			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
+		}
 	}
 	
 	private void addHeaders(Builder builder) {
-		for (Object keyObj : properties.keySet()) {
-			String key = (String) keyObj;
-			if (key.startsWith("header.")) {
-				builder.header(key.replaceFirst("header.", ""), properties.getProperty(key).toString());
-			}
+		for (Entry<String, String> entry : httpHeaders.entrySet()) {
+			builder.header(entry.getKey(), entry.getValue());
 		}
 	}
 
-	private void downloadStyles() throws IOException, InterruptedException {
-		Builder builder = HttpRequest.newBuilder().GET();
-		addHeaders(builder);
-		String url = properties.getProperty(BASE_URL_KEY) + properties.getProperty(INTRO_VIEW_PAGE_KEY);
-		HttpRequest request = builder.uri(URI.create(url)).build();
-		File mainView = new File(bookFolder + "/main.htm");
+	private void downloadStyles(String viewPage) throws IOException, InterruptedException {
+		File mainView = new File(BOOKS_FOLDER + bookName + "/view.htm");
 		if (!mainView.exists()) {
-			mainView.getParentFile().mkdirs();
-			HttpResponse<Path> response = httpClient.send(request, BodyHandlers.ofFile(Path.of(mainView.toURI())));
-			if (response.statusCode() != 200) {
-				throw new IllegalArgumentException("Unexpected HTTP code: " + response.statusCode() + " with content: " + response.body());
+			Builder builder = httpClient.target(viewPage).request();
+			addHeaders(builder);
+			Response response = builder.get();
+			if (response.getStatus() != 200) {
+				throw new IllegalArgumentException("Unexpected " + viewPage + " code " + response.getStatus());
+			} else {
+				mainView.getParentFile().mkdirs();
+				InputStream content = response.readEntity(InputStream.class);
+				try (FileOutputStream fos = new FileOutputStream(mainView);
+		                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+					bos.write(content.readAllBytes());
+				}
 			}
 		}
 		downloadSources(mainView, "link", "href");
 		Document mainDoc = Jsoup.parse(mainView, "UTF-8");
 		Elements styles = mainDoc.getElementsByTag("link");
-		File root = new File(bookFolder);
+		File root = new File(BOOKS_FOLDER + bookName);
         for (File html : root.listFiles()) {
         	if (!html.isDirectory() && html.getName().endsWith("html")) {
         		Document doc = Jsoup.parse(html, "UTF-8");
@@ -87,45 +105,45 @@ public class OreillyProcessor {
         }
 	}
 
-	private void downloadPages() throws IOException, InterruptedException {
-		Builder builder = HttpRequest.newBuilder().GET();
-		addHeaders(builder);
-		String baseUrl = properties.getProperty(BASE_URL_KEY) + properties.getProperty(FETCH_URL_KEY);
-		boolean finish = false;
-		int i = 1;
-		File localChapter = new File(bookFolder + "/" + bookFolder + ".html");
+	private String downloadPages(String filesUrl) throws IOException, InterruptedException {
+		File localChapter = new File(BOOKS_FOLDER + bookName + "/" + bookName + ".html");
 		if (!localChapter.exists()) {
 			localChapter.getParentFile().mkdirs(); 
 			localChapter.createNewFile();
-			try (FileOutputStream fos = new FileOutputStream(localChapter);
-	                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-				while (!finish) {
-					String number = i < 10 ? "0" + i : Integer.toString(i);
-					String fileName = "chapter-" + number + ".html";
-					String url = baseUrl.replaceFirst("#CHAPTER#", fileName);
-					HttpRequest request = builder.uri(URI.create(url)).build();
-					HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
-					if (response.statusCode() == 200) {
-						bos.write(response.body().getBytes(Charset.forName("UTF-8")));
-						bos.flush();
-					} else if (response.statusCode() == 404) {
-						finish = true;
-					} else {
-						throw new IllegalArgumentException("Unexpected HTTP code: " + response.statusCode() + " with content: " + response.body());
-					}
-					i++;
-				}
-				
-			}
-		} else {
-			System.out.println("Skipping " + localChapter.getAbsolutePath() + " because it already exists");
 		}
+		Builder builder = httpClient.target(filesUrl).request();
+		addHeaders(builder);
+		Map<String, Object> response = builder.get().readEntity(new GenericType<Map<String, Object>>() {});
+		@SuppressWarnings("unchecked")
+		List<Map<String, Object>> pages = (List<Map<String, Object>>) response.get("results");
+		try (FileOutputStream fos = new FileOutputStream(localChapter, true);
+                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+			for (Map<String, Object> page : pages) {
+				String pageUrl = (String) page.get("url");
+				String mediaType = (String) page.get("media_type");
+				// Only add valid media types in the book
+				if (VALID_MEDIA_TYPES.contains(mediaType)) {
+					System.out.println("Downloading " + mediaType + " " + pageUrl);
+					builder = httpClient.target(pageUrl).request();
+					addHeaders(builder);
+					Response content = builder.get();
+					String str = content.readEntity(String.class);
+					if (content.getStatus() == 200) {
+						bos.write(str.getBytes(Charset.forName("UTF-8")));
+						bos.flush();
+					} else {
+						throw new IllegalArgumentException("Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
+					}
+				} else {
+					System.out.println("Skipping invalid " + mediaType + " " + pageUrl);
+				}
+			}
+			
+		}
+		return (String) response.get("next");
 	}
 
 	private void downloadSources(File html, String tag, String attribute) throws IOException, InterruptedException {
-		Builder builder = HttpRequest.newBuilder().GET();
-		String baseUrl = properties.getProperty(BASE_URL_KEY);
-		addHeaders(builder);
 		Document doc = Jsoup.parse(html, "UTF-8");
     	Elements elements = doc.getElementsByTag(tag);
     	for (int i = 0; i < elements.size(); i++) {
@@ -133,15 +151,22 @@ public class OreillyProcessor {
     		String attrValue = tagElement.attr(attribute);
     		// Avoid SO errors with wrong file name characters
     		String safeAttr = safeFileName(attrValue);
-    		File dest = new File(bookFolder + "/" + safeAttr);
+    		File dest = new File(BOOKS_FOLDER + bookName + "/" + safeAttr);
     		if (!dest.exists()) {
     			String requestUrl = attrValue.startsWith("http") ? attrValue : baseUrl + attrValue;
-    			HttpRequest request = builder.uri(URI.create(requestUrl)).build();
-    			Path download = Path.of(dest.toURI());
-    			dest.getParentFile().mkdirs();
-    			HttpResponse<Path> response = httpClient.send(request, BodyHandlers.ofFile(download));
-    			if (response.statusCode() != 200) {
-    				System.out.println("Unexpected " + requestUrl + " code " + response.statusCode() + " with: " + response.body());
+    			System.out.println("Downloading " + requestUrl);
+    			Builder builder = httpClient.target(requestUrl).request();
+    			addHeaders(builder);
+    			Response response = builder.get();
+    			if (response.getStatus() != 200) {
+    				System.out.println("Unexpected " + requestUrl + " code " + response.getStatus());
+    			} else {
+    				dest.getParentFile().mkdirs();
+    				InputStream content = response.readEntity(InputStream.class);
+    				try (FileOutputStream fos = new FileOutputStream(dest);
+    		                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+    					bos.write(content.readAllBytes());
+    				}
     			}
     		} else {
     			System.out.println("Skipping " + dest.getAbsolutePath() + " because it already exists");
@@ -158,7 +183,7 @@ public class OreillyProcessor {
 	}
 
 	private void downloadSources(String tag, String attribute) throws IOException, InterruptedException {
-		File root = new File(bookFolder);
+		File root = new File(BOOKS_FOLDER + bookName);
         for (File html : root.listFiles()) {
         	if (!html.isDirectory() && html.getName().endsWith("html")) {
         		downloadSources(html, tag, attribute);
