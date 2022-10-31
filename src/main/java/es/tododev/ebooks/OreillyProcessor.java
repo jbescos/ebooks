@@ -6,10 +6,13 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.stream.Stream;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -20,7 +23,6 @@ import javax.ws.rs.core.Response;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
 public class OreillyProcessor {
 
@@ -54,9 +56,7 @@ public class OreillyProcessor {
 				System.out.println("Searching book pages in " + filesUrl);
 				filesUrl = downloadPages(filesUrl);
 			} while (filesUrl != null);
-			downloadSources("img", "src");
-			String viewPage = baseUrl + "/library/view/" + title + "/" + isbn;
-			downloadStyles(viewPage);
+			resolveLinks();
 		} else {
 			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
 		}
@@ -67,40 +67,35 @@ public class OreillyProcessor {
 			builder.header(entry.getKey(), entry.getValue());
 		}
 	}
-
-	private void downloadStyles(String viewPage) throws IOException, InterruptedException {
-		File mainView = new File(BOOKS_FOLDER + bookName + "/view.htm");
-		Builder builder = httpClient.target(viewPage).request();
-		addHeaders(builder);
-		Response response = builder.get();
-		if (response.getStatus() != 200) {
-			throw new IllegalArgumentException("Unexpected " + viewPage + " code " + response.getStatus());
-		} else {
-			mainView.getParentFile().mkdirs();
-			InputStream content = response.readEntity(InputStream.class);
-			try (FileOutputStream fos = new FileOutputStream(mainView);
-	                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-				bos.write(content.readAllBytes());
-			}
+	
+	private void resolveLinks() throws IOException {
+		File book = new File(BOOKS_FOLDER + bookName + "/" + bookName + ".html");
+		Document document = Jsoup.parse(book, "UTF-8");
+		Element head = document.getElementsByTag("head").first();
+		Element meta = document.createElement("meta");
+		meta.attr("charset", "utf-8");
+		head.appendChild(meta);
+		try (Stream<Path> stream = Files.walk(book.getParentFile().toPath())) {
+		    stream.filter(Files::isRegularFile).filter(file -> !file.toFile().getAbsolutePath().equals(book.getAbsolutePath()))
+		          .forEach(file -> {
+		        	  File toFile = file.toFile();
+		        	  if (toFile.getName().endsWith(".css")) {
+		        		  Element link = document.createElement("link");
+		        		  link.attr("rel", "stylesheet");
+		        		  int idx = book.getParentFile().getAbsolutePath().length();
+		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
+		        		  head.appendChild(link);
+		        	  }
+		          });
 		}
-		downloadSources(mainView, "link", "href");
-		Document mainDoc = Jsoup.parse(mainView, "UTF-8");
-		mainView.delete();
-		Elements styles = mainDoc.getElementsByTag("link");
-		File root = new File(BOOKS_FOLDER + bookName);
-        for (File html : root.listFiles()) {
-        	if (!html.isDirectory() && html.getName().endsWith("html")) {
-        		Document doc = Jsoup.parse(html, "UTF-8");
-        		Element head = doc.getElementsByTag("head").first();
-        		for (Element style : styles) {
-        			head.appendChild(style);
-        		}
-        		try (FileOutputStream fos = new FileOutputStream(html);
-		                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-					 bos.write(doc.outerHtml().getBytes(Charset.forName("UTF-8")));
-				}
-        	}
-        }
+		for (Element element : document.getElementsByAttribute("src")) {
+			String value = safeFileName(element.attr("src"));
+			element.attr("src", value);
+		}
+		try (FileOutputStream fos = new FileOutputStream(book);
+                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+			 bos.write(document.outerHtml().getBytes(Charset.forName("UTF-8")));
+		}
 	}
 
 	private String downloadPages(String filesUrl) throws IOException, InterruptedException {
@@ -119,9 +114,8 @@ public class OreillyProcessor {
 			for (Map<String, Object> page : pages) {
 				String pageUrl = (String) page.get("url");
 				String mediaType = (String) page.get("media_type");
-				// Only add valid media types in the book
+				System.out.println("Downloading " + mediaType + " " + pageUrl);
 				if (VALID_MEDIA_TYPES.contains(mediaType)) {
-					System.out.println("Downloading " + mediaType + " " + pageUrl);
 					builder = httpClient.target(pageUrl).request();
 					addHeaders(builder);
 					Response content = builder.get();
@@ -133,70 +127,33 @@ public class OreillyProcessor {
 						throw new IllegalArgumentException("Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
 					}
 				} else {
-					System.out.println("Skipping invalid " + mediaType + " " + pageUrl);
+					String filePath = safeFileName(BOOKS_FOLDER + bookName + pageUrl.replaceFirst(baseUrl, ""));
+					File resource = new File(filePath);
+					if (!resource.exists()) {
+						resource.getParentFile().mkdirs();
+						resource.createNewFile();
+						builder = httpClient.target(pageUrl).request();
+						addHeaders(builder);
+						Response content = builder.get();
+						InputStream input = content.readEntity(InputStream.class);
+						try (FileOutputStream fos2 = new FileOutputStream(resource);
+				                BufferedOutputStream bos2 = new BufferedOutputStream(fos2)) {
+							bos2.write(input.readAllBytes());
+							bos2.flush();
+						}
+					}
 				}
 			}
 			
 		}
 		return (String) response.get("next");
 	}
-
-	private void downloadSources(File html, String tag, String attribute) throws IOException, InterruptedException {
-		Document doc = Jsoup.parse(html, "UTF-8");
-    	Elements elements = doc.getElementsByTag(tag);
-    	boolean updateFile = false;
-    	for (int i = 0; i < elements.size(); i++) {
-    		Element tagElement = elements.get(i);
-    		String attrValue = tagElement.attr(attribute);
-    		// Avoid SO errors with wrong file name characters
-    		String safeAttr = safeFileName(attrValue);
-    		File dest = new File(BOOKS_FOLDER + bookName + "/" + safeAttr);
-    		if (!dest.exists()) {
-    			String requestUrl = attrValue.startsWith("http") ? attrValue : baseUrl + attrValue;
-    			System.out.println("Downloading " + requestUrl);
-    			Builder builder = httpClient.target(requestUrl).request();
-    			addHeaders(builder);
-    			Response response = builder.get();
-    			if (response.getStatus() != 200) {
-    				System.out.println("Unexpected " + requestUrl + " code " + response.getStatus());
-    			} else {
-    				dest.getParentFile().mkdirs();
-    				InputStream content = response.readEntity(InputStream.class);
-    				try (FileOutputStream fos = new FileOutputStream(dest);
-    		                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-    					bos.write(content.readAllBytes());
-    				}
-    			}
-    		} else {
-    			System.out.println("Skipping " + dest.getAbsolutePath() + " because it already exists");
-    		}
-    		if (!safeAttr.equals(attrValue)) {
-    			tagElement.attr(attribute, safeAttr);
-    			updateFile = true;
-    		}
-    	}
-    	if (updateFile) {
-			try (FileOutputStream fos = new FileOutputStream(html);
-	                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-				bos.write(doc.outerHtml().getBytes(Charset.forName("UTF-8")));
-			}
-    	}
-	}
-
-	private void downloadSources(String tag, String attribute) throws IOException, InterruptedException {
-		File root = new File(BOOKS_FOLDER + bookName);
-        for (File html : root.listFiles()) {
-        	if (!html.isDirectory() && html.getName().endsWith("html")) {
-        		downloadSources(html, tag, attribute);
-        	}
-        }
-	}
 	
 	private String safeFileName(String original) {
 		if (original.startsWith("https://")) {
 			original = original.replaceAll("https://", "");
 		}
-		if (original.charAt(0) == '/') {
+		if (original.charAt(0) == '/' || original.charAt(0) == '\\') {
 			original = original.substring(1);
 		}
 		for (String banned : BANNED_CHARACTERS_FILE) {
