@@ -3,7 +3,6 @@ package es.tododev.ebooks;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
@@ -71,23 +70,22 @@ public class OreillyProcessor {
 
 	private void downloadStyles(String viewPage) throws IOException, InterruptedException {
 		File mainView = new File(BOOKS_FOLDER + bookName + "/view.htm");
-		if (!mainView.exists()) {
-			Builder builder = httpClient.target(viewPage).request();
-			addHeaders(builder);
-			Response response = builder.get();
-			if (response.getStatus() != 200) {
-				throw new IllegalArgumentException("Unexpected " + viewPage + " code " + response.getStatus());
-			} else {
-				mainView.getParentFile().mkdirs();
-				InputStream content = response.readEntity(InputStream.class);
-				try (FileOutputStream fos = new FileOutputStream(mainView);
-		                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-					bos.write(content.readAllBytes());
-				}
+		Builder builder = httpClient.target(viewPage).request();
+		addHeaders(builder);
+		Response response = builder.get();
+		if (response.getStatus() != 200) {
+			throw new IllegalArgumentException("Unexpected " + viewPage + " code " + response.getStatus());
+		} else {
+			mainView.getParentFile().mkdirs();
+			InputStream content = response.readEntity(InputStream.class);
+			try (FileOutputStream fos = new FileOutputStream(mainView);
+	                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+				bos.write(content.readAllBytes());
 			}
 		}
 		downloadSources(mainView, "link", "href");
 		Document mainDoc = Jsoup.parse(mainView, "UTF-8");
+		mainView.delete();
 		Elements styles = mainDoc.getElementsByTag("link");
 		File root = new File(BOOKS_FOLDER + bookName);
         for (File html : root.listFiles()) {
@@ -146,6 +144,7 @@ public class OreillyProcessor {
 	private void downloadSources(File html, String tag, String attribute) throws IOException, InterruptedException {
 		Document doc = Jsoup.parse(html, "UTF-8");
     	Elements elements = doc.getElementsByTag(tag);
+    	boolean updateFile = false;
     	for (int i = 0; i < elements.size(); i++) {
     		Element tagElement = elements.get(i);
     		String attrValue = tagElement.attr(attribute);
@@ -173,12 +172,14 @@ public class OreillyProcessor {
     		}
     		if (!safeAttr.equals(attrValue)) {
     			tagElement.attr(attribute, safeAttr);
-    			// Update file
-    			try (FileOutputStream fos = new FileOutputStream(html);
-		                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-					bos.write(doc.outerHtml().getBytes(Charset.forName("UTF-8")));
-				}
+    			updateFile = true;
     		}
+    	}
+    	if (updateFile) {
+			try (FileOutputStream fos = new FileOutputStream(html);
+	                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+				bos.write(doc.outerHtml().getBytes(Charset.forName("UTF-8")));
+			}
     	}
 	}
 
