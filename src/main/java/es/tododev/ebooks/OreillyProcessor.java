@@ -34,6 +34,7 @@ public class OreillyProcessor {
 	private final String baseUrl;
 	private final Map<String, String> httpHeaders;
 	private String bookName;
+	private String bookFolder;
 
 	public OreillyProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
 		this.baseUrl = baseUrl;
@@ -49,9 +50,10 @@ public class OreillyProcessor {
 		Map<String, Object> response = builder.get(new GenericType<Map<String, Object>>() {});
 		String title = response.get("title").toString().toLowerCase().replaceAll(" ", "-");
 		bookName = safeFileName(title);
-		File bookDir = new File(BOOKS_FOLDER + bookName);
+		bookFolder = BOOKS_FOLDER + isbn + "-" + bookName;
+		File bookDir = new File(bookFolder);
 		if (!bookDir.exists()) {
-		    File book = new File(BOOKS_FOLDER + bookName + "/" + bookName + ".html");
+		    File book = new File(bookFolder + "/" + bookName + ".html");
 			String filesUrl = response.get("files").toString();
 			do {
 				System.out.println("Searching book pages in " + filesUrl);
@@ -65,8 +67,7 @@ public class OreillyProcessor {
 	}
 	
 	private void createEpub(File book) throws Exception {
-	    com.aspose.words.Document doc = new com.aspose.words.Document(book.getAbsolutePath());
-        doc.save(BOOKS_FOLDER + bookName + "/" + bookName + ".epub");
+	    
 	}
 	
 	private void addHeaders(Builder builder) {
@@ -132,7 +133,7 @@ public class OreillyProcessor {
 						throw new IllegalArgumentException("Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
 					}
 				} else {
-					String filePath = safeFileName(BOOKS_FOLDER + bookName + pageUrl.replaceFirst(baseUrl, ""));
+					String filePath = safeFileName(bookFolder + pageUrl.replaceFirst(baseUrl, ""));
 					File resource = new File(filePath);
 					if (!resource.exists()) {
 						resource.getParentFile().mkdirs();

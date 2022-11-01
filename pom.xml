@@ -81,19 +81,6 @@
 			<artifactId>jersey-media-json-jackson</artifactId>
 			<version>2.37</version>
 		</dependency>
-		<dependency>
-			<groupId>com.aspose</groupId>
-			<artifactId>aspose-words</artifactId>
-			<version>22.10</version>
-			<classifier>jdk17</classifier>
-		</dependency>
 	</dependencies>
-	<repositories>
-		<repository>
-			<id>AsposeJavaAPI</id>
-			<name>Aspose Java API</name>
-			<url>https://repository.aspose.com/repo/</url>
-		</repository>
-	</repositories>
 
 </project>
