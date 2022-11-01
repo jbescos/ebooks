@@ -2,7 +2,6 @@ package es.tododev.ebooks;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
@@ -13,7 +12,7 @@ public class Main {
 	private static final String BASE_URL_KEY = "base.url";
 	private static final String ISBNS_KEY = "isbns";
 
-	public static void main(String[] args) throws IOException, InterruptedException {
+	public static void main(String[] args) throws Exception {
 		if (args.length != 1) {
 			System.out.println("Specify the properties file as argument");
 		} else {

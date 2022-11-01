@@ -42,7 +42,7 @@ public class OreillyProcessor {
 		this.httpClient = ClientBuilder.newBuilder().build();
 	}
 	
-	public void execute() throws IOException, InterruptedException {
+	public void execute() throws Exception {
 		String infoPath = baseUrl + "/api/v2/epubs/urn:orm:book:" + isbn;
 		Builder builder = httpClient.target(infoPath).request();
 		addHeaders(builder);
@@ -51,15 +51,22 @@ public class OreillyProcessor {
 		bookName = safeFileName(title);
 		File bookDir = new File(BOOKS_FOLDER + bookName);
 		if (!bookDir.exists()) {
+		    File book = new File(BOOKS_FOLDER + bookName + "/" + bookName + ".html");
 			String filesUrl = response.get("files").toString();
 			do {
 				System.out.println("Searching book pages in " + filesUrl);
-				filesUrl = downloadPages(filesUrl);
+				filesUrl = downloadPages(book, filesUrl);
 			} while (filesUrl != null);
-			resolveLinks();
+			resolveLinks(book);
+			createEpub(book);
 		} else {
 			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
 		}
+	}
+	
+	private void createEpub(File book) throws Exception {
+	    com.aspose.words.Document doc = new com.aspose.words.Document(book.getAbsolutePath());
+        doc.save(BOOKS_FOLDER + bookName + "/" + bookName + ".epub");
 	}
 	
 	private void addHeaders(Builder builder) {
@@ -68,8 +75,7 @@ public class OreillyProcessor {
 		}
 	}
 	
-	private void resolveLinks() throws IOException {
-		File book = new File(BOOKS_FOLDER + bookName + "/" + bookName + ".html");
+	private void resolveLinks(File book) throws IOException {
 		Document document = Jsoup.parse(book, "UTF-8");
 		Element head = document.getElementsByTag("head").first();
 		Element meta = document.createElement("meta");
@@ -98,18 +104,17 @@ public class OreillyProcessor {
 		}
 	}
 
-	private String downloadPages(String filesUrl) throws IOException, InterruptedException {
-		File localChapter = new File(BOOKS_FOLDER + bookName + "/" + bookName + ".html");
-		if (!localChapter.exists()) {
-			localChapter.getParentFile().mkdirs(); 
-			localChapter.createNewFile();
+	private String downloadPages(File book, String filesUrl) throws IOException, InterruptedException {
+		if (!book.exists()) {
+		    book.getParentFile().mkdirs(); 
+		    book.createNewFile();
 		}
 		Builder builder = httpClient.target(filesUrl).request();
 		addHeaders(builder);
 		Map<String, Object> response = builder.get().readEntity(new GenericType<Map<String, Object>>() {});
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> pages = (List<Map<String, Object>>) response.get("results");
-		try (FileOutputStream fos = new FileOutputStream(localChapter, true);
+		try (FileOutputStream fos = new FileOutputStream(book, true);
                 BufferedOutputStream bos = new BufferedOutputStream(fos)) {
 			for (Map<String, Object> page : pages) {
 				String pageUrl = (String) page.get("url");
