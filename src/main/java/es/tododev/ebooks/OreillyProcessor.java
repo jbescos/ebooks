@@ -50,24 +50,23 @@ public class OreillyProcessor {
 		Map<String, Object> response = builder.get(new GenericType<Map<String, Object>>() {});
 		String title = response.get("title").toString().toLowerCase().replaceAll(" ", "-");
 		bookName = safeFileName(title);
-		bookFolder = BOOKS_FOLDER + isbn + "-" + bookName;
-		File bookDir = new File(bookFolder);
-		if (!bookDir.exists()) {
-		    File book = new File(bookFolder + "/" + bookName + ".html");
+		bookFolder = BOOKS_FOLDER + bookName;
+		File book = new File(bookFolder + "/" + bookName + ".html");
+		if (!book.exists()) {
 			String filesUrl = response.get("files").toString();
 			do {
 				System.out.println("Searching book pages in " + filesUrl);
 				filesUrl = downloadPages(book, filesUrl);
 			} while (filesUrl != null);
 			resolveLinks(book);
-			createEpub(book);
 		} else {
-			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
+			System.out.println("Book " + book.getAbsolutePath() + " already exists, skipping.");
 		}
+		createEpub(book);
 	}
 	
 	private void createEpub(File book) throws Exception {
-	    
+	    new EpubMaker(bookFolder, bookName).execute();
 	}
 	
 	private void addHeaders(Builder builder) {
@@ -82,19 +81,17 @@ public class OreillyProcessor {
 		Element meta = document.createElement("meta");
 		meta.attr("charset", "utf-8");
 		head.appendChild(meta);
-		try (Stream<Path> stream = Files.walk(book.getParentFile().toPath())) {
-		    stream.filter(Files::isRegularFile).filter(file -> !file.toFile().getAbsolutePath().equals(book.getAbsolutePath()))
-		          .forEach(file -> {
-		        	  File toFile = file.toFile();
-		        	  if (toFile.getName().endsWith(".css")) {
-		        		  Element link = document.createElement("link");
-		        		  link.attr("rel", "stylesheet");
-		        		  int idx = book.getParentFile().getAbsolutePath().length();
-		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
-		        		  head.appendChild(link);
-		        	  }
-		          });
-		}
+		Files.walk(book.getParentFile().toPath()).filter(Files::isRegularFile).filter(file -> !file.toFile().getAbsolutePath().equals(book.getAbsolutePath()))
+	          .forEach(file -> {
+	        	  File toFile = file.toFile();
+	        	  if (toFile.getName().endsWith(".css")) {
+	        		  Element link = document.createElement("link");
+	        		  link.attr("rel", "stylesheet");
+	        		  int idx = book.getParentFile().getAbsolutePath().length();
+	        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
+	        		  head.appendChild(link);
+	        	  }
+	          });
 		for (Element element : document.getElementsByAttribute("src")) {
 			String value = safeFileName(element.attr("src"));
 			element.attr("src", value);
