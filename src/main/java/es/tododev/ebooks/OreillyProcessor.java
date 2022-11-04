@@ -2,6 +2,7 @@ package es.tododev.ebooks;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,6 +10,7 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -23,6 +25,7 @@ import javax.ws.rs.core.Response;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 
 public class OreillyProcessor {
 
@@ -90,17 +93,35 @@ public class OreillyProcessor {
 		          .forEach(file -> {
 		        	  File toFile = file.toFile();
 		        	  if (toFile.getName().endsWith(".css")) {
-		        		  Element link = document.createElement("link");
-		        		  link.attr("rel", "stylesheet");
-		        		  int idx = book.getParentFile().getAbsolutePath().length();
-		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
-		        		  head.appendChild(link);
+//		        		  Element link = document.createElement("link");
+//		        		  link.attr("rel", "stylesheet");
+//		        		  int idx = book.getParentFile().getAbsolutePath().length();
+//		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
+//		        		  head.appendChild(link);
+		        		  Elements styles = document.getElementsByTag("style");
+		        		  Element style = null;
+		        		  if (styles.size() == 0) {
+		        			  style = document.createElement("style");
+		        			  head.appendChild(style);
+		        		  } else {
+		        			  style = styles.first();
+		        		  }
+		        		  try (InputStream input = new FileInputStream(toFile.getAbsolutePath())) {
+		        			  style.append(new String(input.readAllBytes(), Charset.forName("UTF-8")));
+		        		  } catch (IOException e) {
+							  throw new IllegalArgumentException("Cannot read " + toFile, e);
+		        		  }
+		        		  toFile.delete();
 		        	  }
 		          });
 		}
 		for (Element element : document.getElementsByAttribute("src")) {
-			String value = safeFileName(element.attr("src"));
-			element.attr("src", value);
+			String value = bookFolder + "/" + safeFileName(element.attr("src"));
+			try (InputStream input = new FileInputStream(value)) {
+				String base64 = Base64.getEncoder().encodeToString(input.readAllBytes());
+				element.attr("src", "data:image/png;base64," + base64);
+			}
+			new File(value).delete();
 		}
 		try (FileOutputStream fos = new FileOutputStream(book);
                 BufferedOutputStream bos = new BufferedOutputStream(fos)) {
@@ -123,7 +144,6 @@ public class OreillyProcessor {
 			for (Map<String, Object> page : pages) {
 				String pageUrl = (String) page.get("url");
 				String mediaType = (String) page.get("media_type");
-				System.out.println("Downloading " + mediaType + " " + pageUrl);
 				if (VALID_MEDIA_TYPES.contains(mediaType)) {
 					builder = httpClient.target(pageUrl).request();
 					addHeaders(builder);
