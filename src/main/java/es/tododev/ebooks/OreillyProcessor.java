@@ -82,6 +82,9 @@ public class OreillyProcessor {
 		Element meta = document.createElement("meta");
 		meta.attr("charset", "utf-8");
 		head.appendChild(meta);
+		meta = document.createElement("title");
+		meta.val(bookName);
+		head.appendChild(meta);
 		try (Stream<Path> stream = Files.walk(book.getParentFile().toPath())) {
 		    stream.filter(Files::isRegularFile).filter(file -> !file.toFile().getAbsolutePath().equals(book.getAbsolutePath()))
 		          .forEach(file -> {
