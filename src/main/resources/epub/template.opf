@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
 	<metadata xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
-		<dc:title>nav</dc:title>
+		<dc:title>#BOOK_NAME#</dc:title>
 		<dc:date opf:event="creation">0001-01-01</dc:date>
 		<dc:date opf:event="modification">0001-01-01</dc:date>
 		<dc:date opf:event="publication">2022-11-03</dc:date>
@@ -12,11 +12,6 @@
 	</metadata>
 	<manifest>
 		<item id="ncx" href="#BOOK_NAME#.ncx" media-type="application/x-dtbncx+xml" />
-		<item id="#BOOK_NAME#.html" href="#BOOK_NAME#.html" media-type="application/xhtml+xml" />
-		<item id="image.001.png" href="image.001.png" media-type="image/png" />
-		<item id="image.002.png" href="image.002.png" media-type="image/png" />
-		<item id="image.003.png" href="image.003.png" media-type="image/png" />
-		<item id="styles.css" href="styles.css" media-type="text/css" />
 	</manifest>
 	<spine toc="ncx">
 		<itemref idref="#BOOK_NAME#.html" />

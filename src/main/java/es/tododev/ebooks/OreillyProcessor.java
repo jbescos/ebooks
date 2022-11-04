@@ -7,12 +7,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.stream.Stream;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -27,8 +25,9 @@ import org.jsoup.nodes.Element;
 public class OreillyProcessor {
 
 	private static final List<String> VALID_MEDIA_TYPES = Arrays.asList("text/plain", "text/html", "text/xml", "text/xhtml", "application/xhtml+xml", "application/xhtml", "application/xml", "application/html");
+	private static final List<String> IGNORE_EPUB_EXTENSIONS = Arrays.asList(".ncx", ".opf");
 	private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
-	private static final String BOOKS_FOLDER = "books/";
+	static final String BOOKS_FOLDER = "books/";
 	private final Client httpClient;
 	private final String isbn;
 	private final String baseUrl;
@@ -78,9 +77,6 @@ public class OreillyProcessor {
 	private void resolveLinks(File book) throws IOException {
 		Document document = Jsoup.parse(book, "UTF-8");
 		Element head = document.getElementsByTag("head").first();
-		Element meta = document.createElement("meta");
-		meta.attr("charset", "utf-8");
-		head.appendChild(meta);
 		Files.walk(book.getParentFile().toPath()).filter(Files::isRegularFile).filter(file -> !file.toFile().getAbsolutePath().equals(book.getAbsolutePath()))
 	          .forEach(file -> {
 	        	  File toFile = file.toFile();
@@ -117,6 +113,7 @@ public class OreillyProcessor {
 			for (Map<String, Object> page : pages) {
 				String pageUrl = (String) page.get("url");
 				String mediaType = (String) page.get("media_type");
+				String filenameExt = (String) page.get("filename_ext");
 				System.out.println("Downloading " + mediaType + " " + pageUrl);
 				if (VALID_MEDIA_TYPES.contains(mediaType)) {
 					builder = httpClient.target(pageUrl).request();
@@ -129,6 +126,8 @@ public class OreillyProcessor {
 					} else {
 						throw new IllegalArgumentException("Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
 					}
+				} else if (IGNORE_EPUB_EXTENSIONS.contains(filenameExt)) {
+				    System.out.println("Ignore epub file " + pageUrl);
 				} else {
 					String filePath = safeFileName(bookFolder + pageUrl.replaceFirst(baseUrl, ""));
 					File resource = new File(filePath);
