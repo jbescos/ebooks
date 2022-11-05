@@ -56,14 +56,16 @@ public class OreillyProcessor {
 		bookName = safeFileName(title);
 		bookFolder = BOOKS_FOLDER + isbn + "-" + bookName;
 		File bookDir = new File(bookFolder);
-		if (!bookDir.exists()) {
-		    File book = new File(bookFolder + "/" + bookName + ".html");
+		File book = new File(bookFolder + "/" + bookName + ".html");
+		if (!book.exists()) {
 			String filesUrl = response.get("files").toString();
 			do {
 				System.out.println("Searching book pages in " + filesUrl);
 				filesUrl = downloadPages(book, filesUrl);
 			} while (filesUrl != null);
 			download(baseUrl + "/files/public/epub-reader/override_v1.css");
+			download(baseUrl + "/library/view/dist/orm.bb9f0f2cd05444f089bc.css");
+			download(baseUrl + "/library/view/dist/main.5cf5ecffc5bed2a332c4.css");
 			resolveLinks(book);
 		} else {
 			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
@@ -90,11 +92,19 @@ public class OreillyProcessor {
 		          .forEach(file -> {
 		        	  File toFile = file.toFile();
 		        	  if (toFile.getName().endsWith(".css")) {
-		        		  Element link = document.createElement("link");
-		        		  link.attr("rel", "stylesheet");
-		        		  int idx = book.getParentFile().getAbsolutePath().length();
-		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
-		        		  head.appendChild(link);
+		        		  Elements styles = document.getElementsByTag("style");
+		        		  Element style = null;
+		        		  if (styles.size() == 0) {
+		        			  style = document.createElement("style");
+		        			  head.appendChild(style);
+		        		  } else {
+		        			  style = styles.first();
+		        		  }
+		        		  try (InputStream input = new FileInputStream(toFile.getAbsolutePath())) {
+		        			  style.append(new String(input.readAllBytes(), Charset.forName("UTF-8")));
+		        		  } catch (IOException e) {
+							  throw new IllegalArgumentException("Cannot read " + toFile, e);
+		        		  }
 		        	  }
 		          });
 		}
@@ -137,6 +147,7 @@ public class OreillyProcessor {
 	}
 	
 	private void download(String pageUrl) throws IOException {
+		
 		String filePath = safeFileName(bookFolder + pageUrl.replaceFirst(baseUrl, ""));
 		File resource = new File(filePath);
 		if (!resource.exists()) {
