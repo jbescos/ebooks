@@ -32,6 +32,7 @@ public class OreillyProcessor {
 	private static final List<String> VALID_MEDIA_TYPES = Arrays.asList("text/plain", "text/html", "text/xml", "text/xhtml", "application/xhtml+xml", "application/xhtml", "application/xml", "application/html");
 	private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
 	private static final String BOOKS_FOLDER = "books/";
+	private static final Charset UTF_8 = Charset.forName("UTF-8");
 	private final Client httpClient;
 	private final String isbn;
 	private final String baseUrl;
@@ -62,15 +63,11 @@ public class OreillyProcessor {
 				System.out.println("Searching book pages in " + filesUrl);
 				filesUrl = downloadPages(book, filesUrl);
 			} while (filesUrl != null);
+			download(baseUrl + "/files/public/epub-reader/override_v1.css");
 			resolveLinks(book);
-			createEpub(book);
 		} else {
 			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
 		}
-	}
-	
-	private void createEpub(File book) throws Exception {
-	    
 	}
 	
 	private void addHeaders(Builder builder) {
@@ -93,25 +90,11 @@ public class OreillyProcessor {
 		          .forEach(file -> {
 		        	  File toFile = file.toFile();
 		        	  if (toFile.getName().endsWith(".css")) {
-//		        		  Element link = document.createElement("link");
-//		        		  link.attr("rel", "stylesheet");
-//		        		  int idx = book.getParentFile().getAbsolutePath().length();
-//		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
-//		        		  head.appendChild(link);
-		        		  Elements styles = document.getElementsByTag("style");
-		        		  Element style = null;
-		        		  if (styles.size() == 0) {
-		        			  style = document.createElement("style");
-		        			  head.appendChild(style);
-		        		  } else {
-		        			  style = styles.first();
-		        		  }
-		        		  try (InputStream input = new FileInputStream(toFile.getAbsolutePath())) {
-		        			  style.append(new String(input.readAllBytes(), Charset.forName("UTF-8")));
-		        		  } catch (IOException e) {
-							  throw new IllegalArgumentException("Cannot read " + toFile, e);
-		        		  }
-		        		  toFile.delete();
+		        		  Element link = document.createElement("link");
+		        		  link.attr("rel", "stylesheet");
+		        		  int idx = book.getParentFile().getAbsolutePath().length();
+		        		  link.attr("href", safeFileName(toFile.getAbsolutePath().substring(idx)));
+		        		  head.appendChild(link);
 		        	  }
 		          });
 		}
@@ -121,11 +104,53 @@ public class OreillyProcessor {
 				String base64 = Base64.getEncoder().encodeToString(input.readAllBytes());
 				element.attr("src", "data:image/png;base64," + base64);
 			}
-			new File(value).delete();
 		}
 		try (FileOutputStream fos = new FileOutputStream(book);
                 BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-			 bos.write(document.outerHtml().getBytes(Charset.forName("UTF-8")));
+			 bos.write(document.outerHtml().getBytes(UTF_8));
+		}
+	}
+
+	private void downloadPages(File book, List<Map<String, Object>> pages) throws IOException, InterruptedException {
+		try (FileOutputStream fos = new FileOutputStream(book, true);
+                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+			for (Map<String, Object> page : pages) {
+				String pageUrl = (String) page.get("url");
+				String mediaType = (String) page.get("media_type");
+				System.out.println("Downloading " + mediaType + " " + pageUrl);
+				if (VALID_MEDIA_TYPES.contains(mediaType)) {
+					Builder builder = httpClient.target(pageUrl).request();
+					addHeaders(builder);
+					Response content = builder.get();
+					String str = content.readEntity(String.class);
+					if (content.getStatus() == 200) {
+						bos.write(str.getBytes(UTF_8));
+						bos.flush();
+					} else {
+						throw new IllegalArgumentException("Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
+					}
+				} else {
+					download(pageUrl);
+				}
+			}
+		}
+	}
+	
+	private void download(String pageUrl) throws IOException {
+		String filePath = safeFileName(bookFolder + pageUrl.replaceFirst(baseUrl, ""));
+		File resource = new File(filePath);
+		if (!resource.exists()) {
+			resource.getParentFile().mkdirs();
+			resource.createNewFile();
+			Builder builder = httpClient.target(pageUrl).request();
+			addHeaders(builder);
+			Response content = builder.get();
+			InputStream input = content.readEntity(InputStream.class);
+			try (FileOutputStream fos2 = new FileOutputStream(resource);
+	                BufferedOutputStream bos2 = new BufferedOutputStream(fos2)) {
+				bos2.write(input.readAllBytes());
+				bos2.flush();
+			}
 		}
 	}
 
@@ -139,42 +164,7 @@ public class OreillyProcessor {
 		Map<String, Object> response = builder.get().readEntity(new GenericType<Map<String, Object>>() {});
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> pages = (List<Map<String, Object>>) response.get("results");
-		try (FileOutputStream fos = new FileOutputStream(book, true);
-                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-			for (Map<String, Object> page : pages) {
-				String pageUrl = (String) page.get("url");
-				String mediaType = (String) page.get("media_type");
-				if (VALID_MEDIA_TYPES.contains(mediaType)) {
-					builder = httpClient.target(pageUrl).request();
-					addHeaders(builder);
-					Response content = builder.get();
-					String str = content.readEntity(String.class);
-					if (content.getStatus() == 200) {
-						bos.write(str.getBytes(Charset.forName("UTF-8")));
-						bos.flush();
-					} else {
-						throw new IllegalArgumentException("Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
-					}
-				} else {
-					String filePath = safeFileName(bookFolder + pageUrl.replaceFirst(baseUrl, ""));
-					File resource = new File(filePath);
-					if (!resource.exists()) {
-						resource.getParentFile().mkdirs();
-						resource.createNewFile();
-						builder = httpClient.target(pageUrl).request();
-						addHeaders(builder);
-						Response content = builder.get();
-						InputStream input = content.readEntity(InputStream.class);
-						try (FileOutputStream fos2 = new FileOutputStream(resource);
-				                BufferedOutputStream bos2 = new BufferedOutputStream(fos2)) {
-							bos2.write(input.readAllBytes());
-							bos2.flush();
-						}
-					}
-				}
-			}
-			
-		}
+		downloadPages(book, pages);
 		return (String) response.get("next");
 	}
 	
