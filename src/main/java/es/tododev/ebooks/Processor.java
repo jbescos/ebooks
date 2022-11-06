@@ -27,7 +27,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
-public class OreillyProcessor {
+public class Processor {
 
 	private static final List<String> VALID_MEDIA_TYPES = Arrays.asList("text/plain", "text/html", "text/xml", "text/xhtml", "application/xhtml+xml", "application/xhtml", "application/xml", "application/html");
 	private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
@@ -40,7 +40,7 @@ public class OreillyProcessor {
 	private String bookName;
 	private String bookFolder;
 
-	public OreillyProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
+	public Processor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
 		this.baseUrl = baseUrl;
 		this.isbn = isbn;
 		this.httpHeaders = httpHeaders;

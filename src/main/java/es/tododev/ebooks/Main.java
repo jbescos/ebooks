@@ -34,7 +34,7 @@ public class Main {
 			String baseUrl = properties.getProperty(BASE_URL_KEY).toString();
 			for (String isbn : properties.getProperty(ISBNS_KEY).toString().split(",")) {
 				System.out.println("Processing ISBN: " + isbn);
-				OreillyProcessor processor = new OreillyProcessor(baseUrl, isbn, headers);
+				Processor processor = new Processor(baseUrl, isbn, headers);
 				processor.execute();
 			}
 		}
