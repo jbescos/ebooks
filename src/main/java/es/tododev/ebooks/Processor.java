@@ -6,6 +6,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,7 +26,10 @@ import javax.ws.rs.core.Response;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Entities.EscapeMode;
 import org.jsoup.select.Elements;
+
+import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 
 public class Processor {
 
@@ -67,8 +71,20 @@ public class Processor {
 			download(baseUrl + "/library/view/dist/orm.bb9f0f2cd05444f089bc.css");
 			download(baseUrl + "/library/view/dist/main.5cf5ecffc5bed2a332c4.css");
 			resolveLinks(book);
+			toPdf(book);
 		} else {
 			System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
+		}
+	}
+	
+	private void toPdf(File html) throws IOException {
+		File pdf = new File(bookFolder + "/" + bookName + ".pdf");
+		try (OutputStream out = new FileOutputStream(pdf)) {
+			PdfRendererBuilder builder = new PdfRendererBuilder();
+            builder.useFastMode();
+            builder.withFile(html);
+            builder.toStream(out);
+            builder.run();
 		}
 	}
 	
@@ -80,8 +96,11 @@ public class Processor {
 	
 	private void resolveLinks(File book) throws IOException {
 		Document document = Jsoup.parse(book, "UTF-8");
+		document.outputSettings().syntax(Document.OutputSettings.Syntax.xml);
+		document.outputSettings().escapeMode(EscapeMode.xhtml);
 		Element head = document.getElementsByTag("head").first();
 		Element meta = document.createElement("meta");
+//		document.getElementsByAttribute("epub:type").remove();
 		meta.attr("charset", "utf-8");
 		head.appendChild(meta);
 		meta = document.createElement("title");
