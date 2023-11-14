@@ -75,10 +75,10 @@
 			<version>2.37</version>
 		</dependency>
 		<dependency>
-			<groupId>org.w3c</groupId>
-			<artifactId>epubcheck</artifactId>
-			<version>4.2.4</version>
-		</dependency>
+            <groupId>io.documentnode</groupId>
+            <artifactId>epub4j-core</artifactId>
+            <version>4.2.1</version>
+        </dependency>
 	</dependencies>
 
 </project>
