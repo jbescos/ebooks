@@ -11,6 +11,7 @@ public class Main {
 
     private static final String BASE_URL_KEY = "base.url";
     private static final String ISBNS_KEY = "isbns";
+    private static final String DRM_KEY = "DRM";
 
     public static void main(String[] args) throws Exception {
         if (args.length != 1) {
@@ -32,9 +33,15 @@ public class Main {
                 }
             }
             String baseUrl = properties.getProperty(BASE_URL_KEY).toString();
+            Boolean drm = Boolean.parseBoolean(properties.getProperty(DRM_KEY));
             for (String isbn : properties.getProperty(ISBNS_KEY).toString().split(",")) {
                 System.out.println("Processing ISBN: " + isbn);
-                OreillyProcessor processor = new OreillyProcessor(baseUrl, isbn, headers);
+                Processor processor;
+                if (drm) {
+                    processor = new DRMProcessor(baseUrl, isbn, headers);
+                } else {
+                    processor = new NoDRMProcessor(baseUrl, isbn, headers);
+                }
                 processor.execute();
             }
         }

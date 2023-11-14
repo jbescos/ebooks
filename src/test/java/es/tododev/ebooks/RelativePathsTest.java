@@ -4,7 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
 
-import es.tododev.ebooks.OreillyProcessor.ResourceItem;
+import es.tododev.ebooks.NoDRMProcessor.ResourceItem;
 
 public class RelativePathsTest {
 

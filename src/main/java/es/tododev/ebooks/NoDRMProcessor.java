@@ -28,7 +28,7 @@ import io.documentnode.epub4j.domain.Metadata;
 import io.documentnode.epub4j.domain.Resource;
 import io.documentnode.epub4j.epub.EpubWriter;
 
-public class OreillyProcessor {
+public class NoDRMProcessor implements Processor {
 
     private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
     private static final String BOOKS_FOLDER = "books/";
@@ -42,13 +42,14 @@ public class OreillyProcessor {
     private String bookName;
     private String bookFolder;
 
-    public OreillyProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
+    public NoDRMProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
         this.baseUrl = baseUrl;
         this.isbn = isbn;
         this.httpHeaders = httpHeaders;
         this.httpClient = ClientBuilder.newBuilder().build();
     }
 
+    @Override
     public void execute() throws Exception {
         String infoPath = baseUrl + "/api/v2/epubs/urn:orm:book:" + isbn;
         Builder builder = httpClient.target(infoPath).request();
