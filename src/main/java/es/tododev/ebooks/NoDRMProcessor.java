@@ -40,7 +40,6 @@ public class NoDRMProcessor implements Processor {
     private final Set<ResourceItem> resources = new LinkedHashSet<>();
     private final Map<String, ResourceItem> images = new HashMap<>();
     private String bookName;
-    private String bookFolder;
 
     public NoDRMProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
         this.baseUrl = baseUrl;
@@ -59,27 +58,28 @@ public class NoDRMProcessor implements Processor {
         String titleOriginal = response.get("title").toString();
         String title = titleOriginal.toLowerCase().replaceAll(" ", "-");
         bookName = safeFileName(title);
-        bookFolder = BOOKS_FOLDER + bookName;
-        File bookDir = new File(bookFolder);
-        String epub = BOOKS_FOLDER + isbn + "-" + bookName + ".epub";
-        if (!bookDir.exists()) {
+        File epub = new File(BOOKS_FOLDER + isbn + "-" + bookName + ".epub");
+        if (!epub.exists()) {
             String filesUrl = response.get("files").toString();
             do {
                 System.out.println("Searching book pages in " + filesUrl);
                 filesUrl = downloadPages(filesUrl);
             } while (filesUrl != null);
+            System.out.println("Generate " + epub.getAbsolutePath());
+            createEpub(titleOriginal, epub);
         } else {
-            System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
+            System.out.println("Book " + epub.getAbsolutePath() + " already exists, skipping.");
         }
-        createEpub(titleOriginal, epub);
     }
 
-    private void createEpub(String titleOriginal, String epub) throws Exception {
+    private void createEpub(String titleOriginal, File epub) throws Exception {
         Book book = new Book();
         Metadata metadata = book.getMetadata();
         metadata.addTitle(titleOriginal);
+        ResourceItem coverImage = null;
         for (ResourceItem item : resources) {
             if ("chapter".equals(item.kind)) {
+                boolean cover = item.fileName.toLowerCase().contains("cover");
                 String content = new String(item.content, "UTF-8");
                 Map<String, String> replacements = new HashMap<>();
                 Matcher matcher = PATTERN.matcher(content);
@@ -89,18 +89,29 @@ public class NoDRMProcessor implements Processor {
                     String fileName = file[file.length - 1];
                     ResourceItem image = images.get(fileName);
                     String relative = ResourceItem.relativize(item, image);
-                    replacements.put(fileNameWithPaths, relative + image.fileName);
+                    String newImage = relative + image.fileName;
+                    System.out.println(item.fileName + ": Replace " + fileNameWithPaths + " by " + newImage);
+                    replacements.put(fileNameWithPaths, newImage);
+                    if (cover && coverImage == null) {
+                        System.out.println("Cover image found: " + newImage);
+                        coverImage = image;
+                    }
                 }
                 for (Entry<String, String> entry : replacements.entrySet()) {
                     content = content.replaceAll(entry.getKey(), entry.getValue());
                 }
-                book.addSection(item.fileName, new Resource(new ByteArrayInputStream(content.getBytes("UTF-8")), item.fullPath));
+                book.addSection(item.fileName,
+                        new Resource(new ByteArrayInputStream(content.getBytes("UTF-8")), item.fullPath));
             } else {
-                if ("image".equals(item.kind) && item.fileName.toLowerCase().contains("cover")) {
-                    book.setCoverImage(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
-                } else {
-                    book.getResources().add(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
-                }
+                book.getResources().add(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
+            }
+        }
+        for (ResourceItem item : images.values()) {
+            if (item == coverImage) {
+                System.out.println("Setting cover image " + item.fullPath);
+                book.setCoverImage(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
+            } else {
+                book.getResources().add(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
             }
         }
         EpubWriter epubWriter = new EpubWriter();
@@ -108,7 +119,7 @@ public class NoDRMProcessor implements Processor {
             epubWriter.write(book, out);
         }
     }
-    
+
     private void addHeaders(Builder builder) {
         for (Entry<String, String> entry : httpHeaders.entrySet()) {
             builder.header(entry.getKey(), entry.getValue());
@@ -135,12 +146,11 @@ public class NoDRMProcessor implements Processor {
             Response content = builder.get();
             InputStream input = content.readEntity(InputStream.class);
             byte[] in = input.readAllBytes();
+            ResourceItem resource = new ResourceItem(pageUrl, mediaType, fullPath, fileName, kind, in);
             if ("image".equals(kind)) {
-                images.put(fileName, new ResourceItem(pageUrl, mediaType, fullPath, fileName, kind, in));
-            }
-            // Skip opf files
-            if (!fileName.toLowerCase().endsWith(".opf")) {
-                resources.add(new ResourceItem(pageUrl, mediaType, fullPath, fileName, kind, in));
+                images.put(fileName, resource);
+            } else if (!fileName.toLowerCase().endsWith(".opf")) {
+                resources.add(resource);
             }
         }
         return (String) response.get("next");
@@ -158,7 +168,7 @@ public class NoDRMProcessor implements Processor {
         }
         return original;
     }
-    
+
     static class ResourceItem {
         final String pageUrl;
         final String mediaType;
@@ -168,7 +178,8 @@ public class NoDRMProcessor implements Processor {
         final String folder;
         final byte[] content;
 
-        public ResourceItem(String pageUrl, String mediaType, String fullPath, String fileName, String kind, byte[] content) {
+        public ResourceItem(String pageUrl, String mediaType, String fullPath, String fileName, String kind,
+                byte[] content) {
             this.pageUrl = pageUrl;
             this.mediaType = mediaType;
             this.fullPath = fullPath;
@@ -182,7 +193,7 @@ public class NoDRMProcessor implements Processor {
         public String toString() {
             return "ResourceItem [mediaType=" + mediaType + ", fileName=" + fileName + ", kind=" + kind + "]";
         }
-        
+
         public static String relativize(ResourceItem r1, ResourceItem r2) {
             Path p1 = Paths.get(r1.folder);
             Path p2 = Paths.get(r2.folder);
