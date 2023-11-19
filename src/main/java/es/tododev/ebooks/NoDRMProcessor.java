@@ -38,7 +38,9 @@ public class NoDRMProcessor implements Processor {
     private final String baseUrl;
     private final Map<String, String> httpHeaders;
     private final Set<ResourceItem> resources = new LinkedHashSet<>();
-    private final Map<String, ResourceItem> images = new HashMap<>();
+    private final Map<String, ResourceItem> media = new HashMap<>();
+    private ResourceItem opfResource;
+    private ResourceItem ncxResource;
     private String bookName;
 
     public NoDRMProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
@@ -87,32 +89,45 @@ public class NoDRMProcessor implements Processor {
                     String fileNameWithPaths = matcher.group(1);
                     String[] file = fileNameWithPaths.split("/");
                     String fileName = file[file.length - 1];
-                    ResourceItem image = images.get(fileName);
-                    String relative = ResourceItem.relativize(item, image);
-                    String newImage = relative + image.fileName;
-                    System.out.println(item.fileName + ": Replace " + fileNameWithPaths + " by " + newImage);
-                    replacements.put(fileNameWithPaths, newImage);
-                    if (cover && coverImage == null) {
-                        System.out.println("Cover image found: " + newImage);
-                        coverImage = image;
+                    ResourceItem image = media.get(fileName);
+                    if (image != null) {
+                        String relative = ResourceItem.relativize(item, image);
+                        String newImage = relative + image.fileName;
+                        replacements.put(fileNameWithPaths, newImage);
+                        if (cover && coverImage == null) {
+                            System.out.println("Cover image found: " + newImage);
+                            coverImage = image;
+                        }
+                    } else {
+                        System.out.println("Warning: No image found for " + fileName + " in page " + item.fullPath);
                     }
                 }
                 for (Entry<String, String> entry : replacements.entrySet()) {
                     content = content.replaceAll(entry.getKey(), entry.getValue());
                 }
-                book.addSection(item.fileName,
-                        new Resource(new ByteArrayInputStream(content.getBytes("UTF-8")), item.fullPath));
+                Resource page = new Resource(new ByteArrayInputStream(content.getBytes("UTF-8")), item.fullPath);
+                if (cover) {
+                    book.setCoverPage(page);
+                } else {
+                    book.addSection(item.fileName, page);
+                }
             } else {
                 book.getResources().add(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
             }
         }
-        for (ResourceItem item : images.values()) {
+        for (ResourceItem item : media.values()) {
             if (item == coverImage) {
                 System.out.println("Setting cover image " + item.fullPath);
                 book.setCoverImage(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
             } else {
                 book.getResources().add(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
             }
+        }
+        if (opfResource != null) {
+            book.setOpfResource(new Resource(new ByteArrayInputStream(opfResource.content), opfResource.fullPath));
+        }
+        if (ncxResource != null) {
+            book.setNcxResource(new Resource(new ByteArrayInputStream(ncxResource.content), ncxResource.fullPath));
         }
         EpubWriter epubWriter = new EpubWriter();
         try (FileOutputStream out = new FileOutputStream(epub)) {
@@ -147,9 +162,13 @@ public class NoDRMProcessor implements Processor {
             InputStream input = content.readEntity(InputStream.class);
             byte[] in = input.readAllBytes();
             ResourceItem resource = new ResourceItem(pageUrl, mediaType, fullPath, fileName, kind, in);
-            if ("image".equals(kind)) {
-                images.put(fileName, resource);
-            } else if (!fileName.toLowerCase().endsWith(".opf")) {
+            if ("image".equals(kind) || "video".equals(kind)) {
+                media.put(fileName, resource);
+            } else if (fileName.toLowerCase().endsWith(".opf")) {
+                opfResource = resource;
+            } else if (fileName.toLowerCase().endsWith(".ncx")) {
+                ncxResource = resource;
+            } else {
                 resources.add(resource);
             }
         }
