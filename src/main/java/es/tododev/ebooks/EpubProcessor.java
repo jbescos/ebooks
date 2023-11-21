@@ -57,6 +57,10 @@ public class EpubProcessor implements Processor {
                 book.getResources().add(new Resource(new ByteArrayInputStream(item.content), item.fullPath));
             }
         }
+        ResourceItem cssResource = data.getCssResource();
+        if (cssResource != null) {
+            book.getResources().add(new Resource(new ByteArrayInputStream(cssResource.content), cssResource.fullPath));
+        }
         ResourceItem coverPage = data.getCoverPage();
         if (coverPage != null) {
             book.setCoverPage(new Resource(new ByteArrayInputStream(coverPage.content), coverPage.fullPath));

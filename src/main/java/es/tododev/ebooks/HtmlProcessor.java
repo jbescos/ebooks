@@ -19,7 +19,6 @@ import java.util.stream.Stream;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Invocation.Builder;
-import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
 
 import org.jsoup.Jsoup;
@@ -28,15 +27,10 @@ import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Entities.EscapeMode;
 import org.jsoup.select.Elements;
 
-import io.documentnode.epub4j.domain.Book;
-import io.documentnode.epub4j.domain.Metadata;
-import io.documentnode.epub4j.domain.Resource;
-import io.documentnode.epub4j.epub.EpubWriter;
+import es.tododev.ebooks.BookData.ResourceItem;
 
 public class HtmlProcessor implements Processor {
 
-    private static final List<String> VALID_MEDIA_TYPES = Arrays.asList("text/plain", "text/html", "text/xml",
-            "text/xhtml", "application/xhtml+xml", "application/xhtml", "application/xml", "application/html");
     private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
     private static final String BOOKS_FOLDER = "books/";
     private static final Charset UTF_8 = Charset.forName("UTF-8");
@@ -44,7 +38,6 @@ public class HtmlProcessor implements Processor {
     private final String isbn;
     private final String baseUrl;
     private final Map<String, String> httpHeaders;
-    private String bookName;
     private String bookFolder;
 
     public HtmlProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
@@ -56,93 +49,73 @@ public class HtmlProcessor implements Processor {
 
     @Override
     public void execute() throws Exception {
-        String infoPath = baseUrl + "/api/v2/epubs/urn:orm:book:" + isbn;
-        Builder builder = httpClient.target(infoPath).request();
-        addHeaders(builder);
-        Map<String, Object> response = builder.get(new GenericType<Map<String, Object>>() {
-        });
-        String title = response.get("title").toString().toLowerCase().replaceAll(" ", "-");
-        bookName = safeFileName(title);
-        bookFolder = BOOKS_FOLDER + isbn + "-" + bookName;
-        File bookDir = new File(bookFolder);
-        File book = new File(bookFolder + "/" + bookName + ".html");
-        if (!book.exists()) {
-            String filesUrl = response.get("files").toString();
-            do {
-                System.out.println("Searching book pages in " + filesUrl);
-                filesUrl = downloadPages(book, filesUrl);
-            } while (filesUrl != null);
-            download(baseUrl + "/files/public/epub-reader/override_v1.css");
-            download(baseUrl + "/library/view/dist/orm.bb9f0f2cd05444f089bc.css");
-            download(baseUrl + "/library/view/dist/main.5cf5ecffc5bed2a332c4.css");
-            resolveLinks(book);
-//            File epub = new File(bookFolder + "/" + bookName + ".epub");
-//            createEpub(title, epub, book);
-        } else {
-            System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
-        }
-        
+        BookData book = new BookData(httpClient, baseUrl, isbn, httpHeaders);
+        book.fetch();
+        bookFolder = BOOKS_FOLDER + isbn + "-" + book.getBookName();
+        File html = new File(BOOKS_FOLDER + isbn + "-" + book.getBookName() + ".html");
+        download(baseUrl + "/files/public/epub-reader/override_v1.css");
+        download(baseUrl + "/library/view/dist/orm.bb9f0f2cd05444f089bc.css");
+        download(baseUrl + "/library/view/dist/main.5cf5ecffc5bed2a332c4.css");
+        createFiles(html, book);
+        System.out.println("Generated " + html.getAbsolutePath());
     }
 
-    private void createEpub(String titleOriginal, File epub, File html) throws Exception {
-        Book book = new Book();
-        Metadata metadata = book.getMetadata();
-        metadata.addTitle(titleOriginal);
-        try (InputStream in = new FileInputStream(html)) {
-            book.getResources().add(new Resource(in, html.getName()));
+    private void createFiles(File html, BookData data) throws IOException {
+        try (FileOutputStream fos = new FileOutputStream(html, true);
+                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
+            bos.write(data.getCoverPage().content);
+            for (ResourceItem item : data.getResources()) {
+                if ("chapter".equals(item.kind)) {
+                    bos.write(item.content);
+                }
+            }
         }
-        EpubWriter epubWriter = new EpubWriter();
-        try (FileOutputStream out = new FileOutputStream(epub)) {
-            epubWriter.write(book, out);
-        }
+        resolveLinks(html, data);
     }
-
+    
     private void addHeaders(Builder builder) {
         for (Entry<String, String> entry : httpHeaders.entrySet()) {
             builder.header(entry.getKey(), entry.getValue());
         }
     }
 
-    private void resolveLinks(File book) throws IOException {
+    private void resolveLinks(File book, BookData data) throws IOException {
         Document document = Jsoup.parse(book, "UTF-8");
         document.outputSettings().syntax(Document.OutputSettings.Syntax.xml);
         document.outputSettings().escapeMode(EscapeMode.xhtml);
         Element head = document.getElementsByTag("head").first();
         Element meta = document.createElement("meta");
-//              document.getElementsByAttribute("epub:type").remove();
         meta.attr("charset", "utf-8");
         head.appendChild(meta);
         meta = document.createElement("title");
-        meta.val(bookName);
+        meta.val(data.getBookName());
         head.appendChild(meta);
-        try (Stream<Path> stream = Files.walk(book.getParentFile().toPath())) {
-            stream.filter(Files::isRegularFile)
-                    .filter(file -> !file.toFile().getAbsolutePath().equals(book.getAbsolutePath())).forEach(file -> {
-                        File toFile = file.toFile();
-                        if (toFile.getName().endsWith(".css")) {
-                            Elements styles = document.getElementsByTag("style");
-                            Element style = null;
-                            if (styles.size() == 0) {
-                                style = document.createElement("style");
-                                head.appendChild(style);
-                            } else {
-                                style = styles.first();
-                            }
-                            try (InputStream input = new FileInputStream(toFile.getAbsolutePath())) {
-                                style.append(new String(input.readAllBytes(), Charset.forName("UTF-8")));
-                            } catch (IOException e) {
-                                throw new IllegalArgumentException("Cannot read " + toFile, e);
-                            }
-                        }
-                    });
+        
+        ResourceItem css = data.getCssResource();
+        if (css != null) {
+            Elements styles = document.getElementsByTag("style");
+            Element style = null;
+            if (styles.size() == 0) {
+                style = document.createElement("style");
+                head.appendChild(style);
+            } else {
+                style = styles.first();
+            }
+            style.append(new String(css.content, Charset.forName("UTF-8")));
+        } else {
+            System.out.println("WARNING: CSS was not found");
         }
+        
         for (Element element : document.getElementsByAttribute("src")) {
-            String value = bookFolder + "/" + safeFileName(element.attr("src"));
-            try (InputStream input = new FileInputStream(value)) {
-                String base64 = Base64.getEncoder().encodeToString(input.readAllBytes());
+            String mediaFile = element.attr("src");
+            String[] file = mediaFile.split("/");
+            String fileName = file[file.length - 1];
+            ResourceItem media = data.getMedia().get(fileName);
+            if (media != null) {
+                String base64 = Base64.getEncoder().encodeToString(media.content);
                 element.attr("src", "data:image/png;base64," + base64);
-            } catch (Exception e) {
-                System.out.println("WARNING: Cannot resolve " + value);
+            } else {
+                System.out.println("WARNING: " + mediaFile + " was not found");
             }
         }
         try (FileOutputStream fos = new FileOutputStream(book);
@@ -151,34 +124,7 @@ public class HtmlProcessor implements Processor {
         }
     }
 
-    private void downloadPages(File book, List<Map<String, Object>> pages) throws IOException, InterruptedException {
-        try (FileOutputStream fos = new FileOutputStream(book, true);
-                BufferedOutputStream bos = new BufferedOutputStream(fos)) {
-            for (Map<String, Object> page : pages) {
-                String pageUrl = (String) page.get("url");
-                String mediaType = (String) page.get("media_type");
-                System.out.println("Downloading " + mediaType + " " + pageUrl);
-                if (VALID_MEDIA_TYPES.contains(mediaType)) {
-                    Builder builder = httpClient.target(pageUrl).request();
-                    addHeaders(builder);
-                    Response content = builder.get();
-                    String str = content.readEntity(String.class);
-                    if (content.getStatus() == 200) {
-                        bos.write(str.getBytes(UTF_8));
-                        bos.flush();
-                    } else {
-                        throw new IllegalArgumentException(
-                                "Unexpected HTTP code: " + content.getStatus() + " with content: " + str);
-                    }
-                } else {
-                    download(pageUrl);
-                }
-            }
-        }
-    }
-
     private void download(String pageUrl) throws IOException {
-
         String filePath = safeFileName(bookFolder + pageUrl.replaceFirst(baseUrl, ""));
         File resource = new File(filePath);
         if (!resource.exists()) {
@@ -194,21 +140,6 @@ public class HtmlProcessor implements Processor {
                 bos2.flush();
             }
         }
-    }
-
-    private String downloadPages(File book, String filesUrl) throws IOException, InterruptedException {
-        if (!book.exists()) {
-            book.getParentFile().mkdirs();
-            book.createNewFile();
-        }
-        Builder builder = httpClient.target(filesUrl).request();
-        addHeaders(builder);
-        Map<String, Object> response = builder.get().readEntity(new GenericType<Map<String, Object>>() {
-        });
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> pages = (List<Map<String, Object>>) response.get("results");
-        downloadPages(book, pages);
-        return (String) response.get("next");
     }
 
     private String safeFileName(String original) {

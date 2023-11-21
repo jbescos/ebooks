@@ -1,6 +1,5 @@
 package es.tododev.ebooks;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -37,6 +36,7 @@ public class BookData {
     private ResourceItem coverImage;
     private ResourceItem opfResource;
     private ResourceItem ncxResource;
+    private ResourceItem cssResource;
 
     public BookData(Client httpClient, String baseUrl, String isbn, Map<String, String> httpHeaders) {
         this.baseUrl = baseUrl;
@@ -146,6 +146,8 @@ public class BookData {
             ResourceItem resource = new ResourceItem(pageUrl, mediaType, fullPath, fileName, kind, in);
             if ("image".equals(kind) || "video".equals(kind)) {
                 media.put(fileName, resource);
+            } else if ("stylesheet".equals(kind)) {
+                cssResource = resource;
             } else if (fileName.toLowerCase().endsWith(".opf")) {
                 opfResource = resource;
             } else if (fileName.toLowerCase().endsWith(".ncx")) {
@@ -190,6 +192,11 @@ public class BookData {
     public ResourceItem getNcxResource() {
         return ncxResource;
     }
+
+    public ResourceItem getCssResource() {
+        return cssResource;
+    }
+
 
     static class ResourceItem {
         final String pageUrl;
