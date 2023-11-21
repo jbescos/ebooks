@@ -38,9 +38,9 @@ public class Main {
                 System.out.println("Processing ISBN: " + isbn);
                 Processor processor;
                 if (drm) {
-                    processor = new DRMProcessor(baseUrl, isbn, headers);
+                    processor = new HtmlProcessor(baseUrl, isbn, headers);
                 } else {
-                    processor = new NoDRMProcessor(baseUrl, isbn, headers);
+                    processor = new EpubProcessor(baseUrl, isbn, headers);
                 }
                 processor.execute();
             }

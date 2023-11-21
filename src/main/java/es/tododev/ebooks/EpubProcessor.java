@@ -14,7 +14,7 @@ import io.documentnode.epub4j.domain.Metadata;
 import io.documentnode.epub4j.domain.Resource;
 import io.documentnode.epub4j.epub.EpubWriter;
 
-public class NoDRMProcessor implements Processor {
+public class EpubProcessor implements Processor {
 
     private static final String BOOKS_FOLDER = "books/";
     private final Client httpClient;
@@ -22,7 +22,7 @@ public class NoDRMProcessor implements Processor {
     private final String baseUrl;
     private final Map<String, String> httpHeaders;
 
-    public NoDRMProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
+    public EpubProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
         this.baseUrl = baseUrl;
         this.isbn = isbn;
         this.httpHeaders = httpHeaders;

@@ -33,7 +33,7 @@ import io.documentnode.epub4j.domain.Metadata;
 import io.documentnode.epub4j.domain.Resource;
 import io.documentnode.epub4j.epub.EpubWriter;
 
-public class DRMProcessor implements Processor {
+public class HtmlProcessor implements Processor {
 
     private static final List<String> VALID_MEDIA_TYPES = Arrays.asList("text/plain", "text/html", "text/xml",
             "text/xhtml", "application/xhtml+xml", "application/xhtml", "application/xml", "application/html");
@@ -47,7 +47,7 @@ public class DRMProcessor implements Processor {
     private String bookName;
     private String bookFolder;
 
-    public DRMProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
+    public HtmlProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
         this.baseUrl = baseUrl;
         this.isbn = isbn;
         this.httpHeaders = httpHeaders;
