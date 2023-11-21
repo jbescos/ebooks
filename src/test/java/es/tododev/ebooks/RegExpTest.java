@@ -9,7 +9,7 @@ public class RegExpTest {
     @Test
     public void test() {
         String img = "<img alt=\"sdsd\" src=\"test1\">sdfdsfdf<img alt=\"sdsd\" src=\"test2\">";
-        Matcher matcher = NoDRMProcessor.PATTERN.matcher(img);
+        Matcher matcher = BookData.PATTERN.matcher(img);
         while (matcher.find()) {
             System.out.println(matcher.group(1));
         }

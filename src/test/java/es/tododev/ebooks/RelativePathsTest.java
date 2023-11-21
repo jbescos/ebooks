@@ -4,7 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
 
-import es.tododev.ebooks.NoDRMProcessor.ResourceItem;
+import es.tododev.ebooks.BookData.ResourceItem;
 
 public class RelativePathsTest {
 
