@@ -6,7 +6,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +28,10 @@ import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Entities.EscapeMode;
 import org.jsoup.select.Elements;
 
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
+import io.documentnode.epub4j.domain.Book;
+import io.documentnode.epub4j.domain.Metadata;
+import io.documentnode.epub4j.domain.Resource;
+import io.documentnode.epub4j.epub.EpubWriter;
 
 public class DRMProcessor implements Processor {
 
@@ -74,20 +76,24 @@ public class DRMProcessor implements Processor {
             download(baseUrl + "/library/view/dist/orm.bb9f0f2cd05444f089bc.css");
             download(baseUrl + "/library/view/dist/main.5cf5ecffc5bed2a332c4.css");
             resolveLinks(book);
-//                      toPdf(book);
+//            File epub = new File(bookFolder + "/" + bookName + ".epub");
+//            createEpub(title, epub, book);
         } else {
             System.out.println("Book " + bookDir.getAbsolutePath() + " already exists, skipping.");
         }
+        
     }
 
-    private void toPdf(File html) throws IOException {
-        File pdf = new File(bookFolder + "/" + bookName + ".pdf");
-        try (OutputStream out = new FileOutputStream(pdf)) {
-            PdfRendererBuilder builder = new PdfRendererBuilder();
-            builder.useFastMode();
-            builder.withFile(html);
-            builder.toStream(out);
-            builder.run();
+    private void createEpub(String titleOriginal, File epub, File html) throws Exception {
+        Book book = new Book();
+        Metadata metadata = book.getMetadata();
+        metadata.addTitle(titleOriginal);
+        try (InputStream in = new FileInputStream(html)) {
+            book.getResources().add(new Resource(in, html.getName()));
+        }
+        EpubWriter epubWriter = new EpubWriter();
+        try (FileOutputStream out = new FileOutputStream(epub)) {
+            epubWriter.write(book, out);
         }
     }
 
@@ -135,6 +141,8 @@ public class DRMProcessor implements Processor {
             try (InputStream input = new FileInputStream(value)) {
                 String base64 = Base64.getEncoder().encodeToString(input.readAllBytes());
                 element.attr("src", "data:image/png;base64," + base64);
+            } catch (Exception e) {
+                System.out.println("WARNING: Cannot resolve " + value);
             }
         }
         try (FileOutputStream fos = new FileOutputStream(book);
