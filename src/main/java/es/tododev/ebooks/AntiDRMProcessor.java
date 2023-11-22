@@ -2,19 +2,16 @@ package es.tododev.ebooks;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.stream.Stream;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -26,10 +23,12 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Entities.EscapeMode;
 import org.jsoup.select.Elements;
+import org.xhtmlrenderer.layout.SharedContext;
+import org.xhtmlrenderer.pdf.ITextRenderer;
 
 import es.tododev.ebooks.BookData.ResourceItem;
 
-public class HtmlProcessor implements Processor {
+public class AntiDRMProcessor implements Processor {
 
     private static final List<String> BANNED_CHARACTERS_FILE = Arrays.asList("\\:", "\\*", "\\?", "<", ">", "\\|");
     private static final String BOOKS_FOLDER = "books/";
@@ -40,7 +39,7 @@ public class HtmlProcessor implements Processor {
     private final Map<String, String> httpHeaders;
     private String bookFolder;
 
-    public HtmlProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
+    public AntiDRMProcessor(String baseUrl, String isbn, Map<String, String> httpHeaders) {
         this.baseUrl = baseUrl;
         this.isbn = isbn;
         this.httpHeaders = httpHeaders;
@@ -53,14 +52,26 @@ public class HtmlProcessor implements Processor {
         book.fetch();
         bookFolder = BOOKS_FOLDER + isbn + "-" + book.getBookName();
         File html = new File(BOOKS_FOLDER + isbn + "-" + book.getBookName() + ".html");
-        download(baseUrl + "/files/public/epub-reader/override_v1.css");
-        download(baseUrl + "/library/view/dist/orm.bb9f0f2cd05444f089bc.css");
-        download(baseUrl + "/library/view/dist/main.5cf5ecffc5bed2a332c4.css");
-        createFiles(html, book);
+        createHtml(html, book);
         System.out.println("Generated " + html.getAbsolutePath());
+        File pdf = new File(BOOKS_FOLDER + isbn + "-" + book.getBookName() + ".pdf");
+        createPdf(html, pdf);
+        System.out.println("Generated " + pdf.getAbsolutePath());
     }
 
-    private void createFiles(File html, BookData data) throws IOException {
+    private void createPdf(File html, File pdf) throws IOException {
+        try (OutputStream outputStream = new FileOutputStream(pdf)) {
+            ITextRenderer renderer = new ITextRenderer();
+            SharedContext sharedContext = renderer.getSharedContext();
+            sharedContext.setPrint(true);
+            sharedContext.setInteractive(false);
+            renderer.setDocument(html);
+            renderer.layout();
+            renderer.createPDF(outputStream);
+        }
+    }
+    
+    private void createHtml(File html, BookData data) throws IOException {
         try (FileOutputStream fos = new FileOutputStream(html, true);
                 BufferedOutputStream bos = new BufferedOutputStream(fos)) {
             bos.write(data.getCoverPage().content);
@@ -116,6 +127,19 @@ public class HtmlProcessor implements Processor {
                 element.attr("src", "data:image/png;base64," + base64);
             } else {
                 System.out.println("WARNING: " + mediaFile + " was not found");
+            }
+        }
+        // Remove not HTML attribute
+        for (Element element : document.getElementsByAttribute("epub:type")) {
+            element.removeAttr("epub:type");
+        }
+        // Fix href
+        for (Element element : document.getElementsByAttribute("href")) {
+            String hrefVal = element.attr("href");
+            int idx = hrefVal.indexOf("#");
+            if (idx != -1) {
+                hrefVal = hrefVal.substring(idx);
+                element.attr("href", hrefVal);
             }
         }
         try (FileOutputStream fos = new FileOutputStream(book);
