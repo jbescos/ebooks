@@ -56,6 +56,11 @@ public class BookData {
                 fixMediaLinks(item, false);
             }
         }
+        if (coverPage == null) {
+            // FIXME Check NCX file
+            coverPage = resources.iterator().next();
+            resources.remove(coverPage);
+        }
         fixMediaLinks(coverPage, true);
     }
 
