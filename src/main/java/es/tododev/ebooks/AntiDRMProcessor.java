@@ -125,6 +125,9 @@ public class AntiDRMProcessor implements Processor {
             if (media != null) {
                 String base64 = Base64.getEncoder().encodeToString(media.content);
                 element.attr("src", "data:image/png;base64," + base64);
+                // Try to avoid PDF conversion issues with the image
+                element.removeAttr("height");
+                element.removeAttr("width");
             } else {
                 System.out.println("WARNING: " + mediaFile + " was not found");
             }
