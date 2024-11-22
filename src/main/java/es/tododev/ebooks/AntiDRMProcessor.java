@@ -128,6 +128,8 @@ public class AntiDRMProcessor implements Processor {
                 // Try to avoid PDF conversion issues with the image
                 element.removeAttr("height");
                 element.removeAttr("width");
+                element.removeAttr("style");
+                element.attr("style", "width: 100%; max-width: 600px;");
             } else {
                 System.out.println("WARNING: " + mediaFile + " was not found");
             }
